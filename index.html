@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E SE A BARRAGEM ESTOURAR?</title>
+    <style>
+        :root { --red: #ff3e3e; --yellow: #ffeb3b; --bg: #050505; --green: #00ff41; }
+        body { background: var(--bg); color: #dcdcdc; font-family: 'Courier New', monospace; margin: 0; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; user-select: none; }
+        
+        #background-img { 
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: linear-gradient(rgba(0,0,0,0.85), rgba(0,0,0,0.85)), 
+                        url('https://inline-images.googleusercontent.com/image_generation_content/0'); 
+            background-size: cover; background-position: center; z-index: -1; 
+        }
+
+        #game-container { max-width: 850px; width: 90%; background: rgba(15, 15, 15, 0.98); padding: 40px; border: 1px solid #333; box-shadow: 0 0 50px rgba(0,0,0,1); position: relative; }
+        h1 { color: var(--red); text-align: center; letter-spacing: 2px; border-bottom: 2px solid var(--red); padding-bottom: 10px; margin-top: 0; text-transform: uppercase; }
+        #status-bar { display: flex; justify-content: space-around; margin-bottom: 20px; background: #000; padding: 10px; border: 1px solid #444; font-size: 0.9em; }
+        .stat-value { color: var(--yellow); font-weight: bold; }
+        #scene-text { line-height: 1.6; margin-bottom: 30px; font-size: 1.1em; height: 380px; overflow-y: auto; text-align: justify; scrollbar-width: thin; padding-right: 15px; cursor: pointer; white-space: pre-wrap; }
+        .choice-btn { display: block; width: 100%; padding: 14px; margin: 8px 0; background: #111; border: 1px solid #444; color: #fff; cursor: pointer; text-transform: uppercase; transition: 0.2s; font-family: 'Courier New', monospace; }
+        .choice-btn:hover { background: var(--red); color: #000; font-weight: bold; }
+        #dice-area { padding: 15px; margin-bottom: 15px; font-weight: bold; display: none; text-align: center; font-size: 1.4em; border-radius: 4px; border: 1px solid #444; }
+        #credits { position: fixed; bottom: 10px; right: 15px; font-size: 0.7em; color: #555; letter-spacing: 1px; text-transform: uppercase; }
+        .cursor { display: inline-block; width: 8px; height: 1.2em; background: var(--green); margin-left: 5px; animation: blink 0.8s infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
+        .shake { animation: shake 0.5s; }
+        @keyframes shake { 0% { transform: translate(1px, 1px); } 20% { transform: translate(-3px, 0); } 40% { transform: translate(3px, 2px); } 60% { transform: translate(-1px, -1px); } 100% { transform: translate(0, 0); } }
+    </style>
+</head>
+<body>
+
+<div id="background-img"></div>
+<div id="game-container">
+    <h1>E se a barragem estourar?</h1>
+    <div id="status-bar">
+        <div>INTEGRIDADE: <span id="vida" class="stat-value">100</span>%</div>
+        <div>ESTÁGIO: <span id="fase-num" class="stat-value">0/10</span></div>
+    </div>
+    <div id="scene-text" onclick="skipTypewriter()"></div>
+    <div id="dice-area"></div>
+    <div id="choices">
+        <button class="choice-btn" onclick="mostrarRegras()">[ INICIAR TERMINAL ]</button>
+    </div>
+</div>
+<div id="credits">Autor: Guasselli</div>
+
+<script>
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    let vida = 100, faseAtual = -1;
+    let isTyping = false, currentFullText = "", typeTimeout;
+
+    function playSound(type) {
+        const now = audioCtx.currentTime;
+        const g = audioCtx.createGain(); g.connect(audioCtx.destination);
+        const osc = audioCtx.createOscillator();
+        if (type === 'click') {
+            osc.type = 'sine'; osc.frequency.setValueAtTime(1000 + (Math.random()*200), now);
+            g.gain.setValueAtTime(0.008, now); g.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
+            osc.connect(g); osc.start(); osc.stop(now + 0.03);
+        }
+        if (type === 'alivio') {
+            const bufferSize = audioCtx.sampleRate * 2;
+            const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+            const noise = audioCtx.createBufferSource(); noise.buffer = buffer;
+            const filter = audioCtx.createBiquadFilter(); filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(500, now);
+            filter.frequency.exponentialRampToValueAtTime(100, now + 1.2);
+            g.gain.setValueAtTime(0, now); g.gain.linearRampToValueAtTime(0.05, now + 0.2);
+            g.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
+            noise.connect(filter); filter.connect(g); noise.start();
+        }
+        if (type === 'dado') {
+            osc.type = 'square'; osc.frequency.setValueAtTime(100, now);
+            g.gain.setValueAtTime(0.03, now); g.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+            osc.connect(g); osc.start(); osc.stop(now + 0.1);
+        }
+    }
+
+    function typeWriter(text, i, cb) {
+        isTyping = true; currentFullText = text;
+        const scene = document.getElementById("scene-text");
+        if (i < text.length) {
+            scene.innerHTML = text.substring(0, i + 1) + '<span class="cursor"></span>';
+            scene.scrollTop = scene.scrollHeight;
+            if(text.charAt(i) !== " " && text.charAt(i) !== "\n") playSound('click');
+            typeTimeout = setTimeout(() => typeWriter(text, i + 1, cb), 35);
+        } else { finishTyping(cb); }
+    }
+
+    function skipTypewriter() { if (isTyping) { clearTimeout(typeTimeout); finishTyping(window.currentCb); } }
+
+    function finishTyping(cb) {
+        isTyping = false;
+        document.getElementById("scene-text").innerHTML = currentFullText;
+        if (cb) cb();
+    }
+
+    async function rolarDadosAnim(totalNecessario, dadoReal) {
+        const area = document.getElementById('dice-area');
+        area.style.display = "block"; area.style.background = "#000"; area.style.color = "#fff";
+        for(let i=0; i<10; i++) {
+            area.innerText = `🎲 CALCULANDO SOBREVIVÊNCIA: ${Math.floor(Math.random()*6)+1}`;
+            playSound('dado'); await new Promise(r => setTimeout(r, 200));
+        }
+        const sucesso = totalNecessario >= 4;
+        area.style.background = sucesso ? "var(--green)" : "var(--red)"; area.style.color = "#000";
+        area.innerText = `🎲 RESULTADO: ${dadoReal} -> ${sucesso ? 'ÉXITO' : 'DANO SOFRIDO'}`;
+        if(sucesso) playSound('alivio');
+        return sucesso;
+    }
+
+    const textoRegras = "REGRAS DE SOBREVIVÊNCIA:\n\n1. O jogo consiste em 10 estágios críticos.\n2. Para cada decisão, um dado de 6 faces será lançado.\n3. Respostas corretas somam +2 ao dado. Respostas incorretas subtraem -2.\n4. Você precisa de um resultado final 4 ou superior para não sofrer danos.\n5. Se sua INTEGRIDADE chegar a 0%, a simulação termina.\n\nClique no texto a qualquer momento para acelerar a digitação.";
+
+    const textoPrologo = "Prólogo: O Crepúsculo na Orla\n\nO sol está se pondo em um final de tarde abafado em Tucuruí. Você está sentado em uma das mesas da Orla, sentindo a brisa que vem do Rio Tocantins. À sua frente, uma cuia de tacacá fumegante, com o cheiro característico do tucupi e do jambu que faz a boca adormecer levemente.\n\nAo redor, o movimento é normal: crianças correndo, o som distante de um som automotivo e o brilho das luzes da cidade começando a refletir no espelho d'água. Ao fundo, a gigante de concreto — a Usina Hidrelétrica de Tucuruí — repousa como uma muralha familiar no horizonte.\n\nDe repente, o som ambiente é cortado. Não é um trovão. É um estalo seco, seguido por um vibrar profundo que você sente na sola dos pés, antes mesmo de ouvir. O tacacá na sua cuia treme, formando pequenas ondas.\n\nSegundos depois, a sirene de emergência corta o ar com um som agudo e desesperador que você só tinha ouvido em simulações... mas desta vez, as luzes da cidade piscam e se apagam por completo. O silêncio que se segue é interrompido pelo grito de alguém próximo ao parapeito:\n\n\"— A ÁGUA TÁ SUBINDO! CORRE!\"\n\nO pânico é instantâneo. A cuia cai no chão, o jambu ainda amortece sua língua, mas seu coração dispara. A sobrevivência começou.";
+
+    const fases = [
+        { t: "FASE 1: O Caos no Cais\n\nO céu de Tucuruí, antes alaranjado, parece escurecer com a névoa de água que levanta lá longe. O barulho de cornetas de navios no porto se mistura aos gritos de 'A barragem estourou!'.\n\nVocê vê a água engolindo os primeiros bancos da orla. O pânico é um cheiro metálico no ar. A multidão corre para o porto tentando salvar barcos, outros entram nos carros.\n\nO que você faz enquanto a água sobe centímetros por segundo nos seus pés?", c: ["Salvar embarcações no porto", "Subir para a Vila Permanente", "Fugir pela avenida da orla"], r: 1, dano: 30 },
+        { t: "FASE 2: A Armadilha da BR-422\n\nVocê está ofegante. Ao tentar cruzar a pista principal, o cenário é de guerra: carros abandonados com portas abertas e o som de buzinas travadas.\n\nA água já desce pelas ladeiras como cachoeiras de lama. Ela está batendo na sua canela, parece inofensiva, mas você sente o chão 'fugir' sob suas botas.\n\nVocê precisa chegar ao outro lado, mas a correnteza ruge contra as rodas dos carros. É seguro colocar o pé nessa água?", c: ["Sim, a água está baixa", "Não, a pressão pode derrubar", "Correr o mais rápido possível"], r: 1, dano: 30 },
+        { t: "FASE 3: A Encruzilhada do Getat\n\nO suor escorre pelos seus olhos. Você chega a um ponto onde as luzes de emergência de um transformador estouram em faíscas verdes.\n\nDe um lado, o Getat parece um caminho mais largo, do outro, a subida íngreme para a Vila Permanente. O barulho da água batendo nas casas lá embaixo é como o de um trem descarrilando.\n\nSem sinal de celular, qual caminho garante que você não será cercado pela água em uma bacia natural?", c: ["Seguir para o Getat", "Subir para a Vila Permanente", "Ir para o Mercado Municipal"], r: 1, dano: 25 },
+        { t: "FASE 4: O Estalo da Morte\n\nUm poste da rede de alta tensão da empresa responsável tomba pesadamente sobre um muro de arrimo à sua frente. O cabo de cobre chicoteia a poça d'água, emitindo um estalo seco e um cheiro de ozônio queimado.\n\nVocê está no raio de alcance da eletricidade que se espalha pelo chão molhado. Seus pelos do braço se arrepiam. Você sente uma vibração estranha nas pernas.\n\nComo sair desse raio de morte sem virar um condutor vivo?", c: ["Dar passos largos para fugir", "Pés juntos arrastando-os ou pulando colados", "Correr em ziguezague"], r: 1, dano: 100 },
+        { t: "FASE 5: A Noite de Chuva\n\nVocê atingiu um ponto alto, mas está encharcado. A adrenalina baixou e o frio da noite amazônica começa a castigar. A chuva de Tucuruí não para, e o vento corta suas roupas molhadas.\n\nSeus lábios estão roxos. Você está faminto e com sede, mas seu corpo começa a tremer incontrolavelmente.\n\nO que você resolve primeiro para não desmaiar antes do amanhecer?", c: ["Buscar comida imediata", "Priorizar abrigo contra hipotermia", "Tentar sinal de celular"], r: 1, dano: 25 },
+        { t: "FASE 6: O Gosto do Barro\n\nO dia amanhece e o cenário é desolador: Tucuruí virou um mar de lama marrom. A sede é insuportável, sua garganta arde.\n\nVocê encontra uma garrafa pet com água de chuva coletada de um telhado de amianto, cheia de fuligem e detritos.\n\nA vontade é virar a garrafa de uma vez, mas você sabe que um surto de cólera ou leptospirose seria sua sentença de morte. Como purificar isso?", c: ["10 gotas de cloro", "2 gotas de hipoclorito (esperar 30 min)", "Beber direto"], r: 1, dano: 40 },
+        { t: "FASE 7: O Inimigo Silencioso\n\nVocê está descansando em um amontoado de tijolos quando percebe algo se movendo entre as fendas. Com a cidade inundada, as matas vizinhas expulsaram tudo o que vive no chão.\n\nUm escorpião preto gigante ergue a cauda a poucos centímetros da sua mão. O susto é grande. Se ele te picar, o socorro médico é inexistente no momento.\n\nQual erro você não pode cometer se o pior acontecer?", c: ["Lavar com sabão", "Fazer torniquete ou sugar o veneno", "Manter a calma"], r: 1, dano: 50 },
+        { t: "FASE 8: O Som dos Rotores\n\nO barulho rítmico de um helicóptero 'Sapão' corta o céu cinzento. Ele está longe, sobrevoando os telhados que ficaram de fora. Você corre para uma clareira de barro seco.\n\nEles estão procurando sobreviventes, mas o brilho do sol na água dificulta a visão deles.\n\nVocê precisa mandar uma mensagem clara do chão que seja um pedido de socorro médico urgente.", c: ["Sinalizar com letra V", "Sinalizar com letra X", "Acenar freneticamente"], r: 1, dano: 0 },
+        { t: "FASE 9: A Manada Humana\n\nUm grito ecoa no acampamento: 'A barragem auxiliar cedeu! Outra onda!'. É mentira, mas o pânico é contagioso. Centenas de pessoas correm desesperadas em uma escadaria estreita.\n\nO empurra-empurra é violento. Você corre o risco de ser pisoteado.\n\nComo você se posiciona para proteger seus órgãos vitais e não cair enquanto a massa humana te arrasta?", c: ["Correr contra o fluxo", "Diagonal com fluxo, braços no peito", "Deitar no chão"], r: 1, dano: 50 },
+        { t: "FASE 10: O Vale de Sombras\n\nTrês dias depois. A água recuou, deixando lama fétida. Você volta à sua rua. As casas parecem de pé, mas marcas de água atingem o teto.\n\nO solo sob seus pés parece 'fofo'. A casa dá um estalo surdo. Você quer entrar para buscar documentos.\n\nQual o perigo real de uma estrutura que sobreviveu à inundação, mas agora está secando?", c: ["Infestação de insetos", "Recalque diferencial (vácuo no solo)", "Falta de oxigênio"], r: 1, dano: 100 }
+    ];
+
+    function mostrarRegras() {
+        audioCtx.resume(); document.getElementById('choices').innerHTML = "";
+        window.currentCb = () => { document.getElementById('choices').innerHTML = `<button class="choice-btn" onclick="iniciarSistema()">[ COMPREENDIDO ]</button>`; };
+        typeWriter(textoRegras, 0, window.currentCb);
+    }
+
+    function iniciarSistema() {
+        faseAtual = -1; document.getElementById('choices').innerHTML = "";
+        window.currentCb = () => { document.getElementById('choices').innerHTML = `<button class="choice-btn" onclick="proximaFase()">[ ENTRAR NA ÁREA DE RISCO ]</button>`; };
+        typeWriter(textoPrologo, 0, window.currentCb);
+    }
+
+    function proximaFase() {
+        faseAtual++; if(faseAtual >= fases.length) { finalizar("SIMULAÇÃO CONCLUÍDA. VOCÊ SOBREVIVEU AO GRANDE FLUXO."); return; }
+        renderFase();
+    }
+
+    function renderFase() {
+        const f = fases[faseAtual]; document.getElementById('fase-num').innerText = `${faseAtual + 1}/10`;
+        document.getElementById('choices').innerHTML = ""; document.getElementById('dice-area').style.display = "none";
+        window.currentCb = () => {
+            f.c.forEach((op, i) => {
+                const b = document.createElement("button"); b.className = "choice-btn"; b.innerText = op;
+                b.onclick = () => processar(i); document.getElementById('choices').appendChild(b);
+            });
+        };
+        typeWriter(f.t, 0, window.currentCb);
+    }
+
+    async function processar(escolha) {
+        document.getElementById('choices').innerHTML = "";
+        const f = fases[faseAtual]; const dadoReal = Math.floor(Math.random() * 6) + 1;
+        const total = dadoReal + (escolha === f.r ? 2 : -2);
+        const sucesso = await rolarDadosAnim(total, dadoReal);
+        setTimeout(() => {
+            if(!sucesso) {
+                vida -= f.dano; document.getElementById('vida').innerText = Math.max(0, vida);
+                document.getElementById('game-container').classList.add('shake');
+                setTimeout(() => document.getElementById('game-container').classList.remove('shake'), 500);
+            }
+            if(vida <= 0) finalizar("SINAIS VITAIS PERDIDOS. O JOGADOR NÃO RESISTIU.");
+            else document.getElementById('choices').innerHTML = `<button class="choice-btn" onclick="proximaFase()">[ CONTINUAR ]</button>`;
+        }, 600);
+    }
+
+    function finalizar(m) {
+        document.getElementById('scene-text').innerHTML = "";
+        typeWriter(m, 0, () => { document.getElementById('choices').innerHTML = `<button class="choice-btn" onclick="location.reload()">[ REINICIAR PROTOCOLO ]</button>`; });
+    }
+</script>
+</body>
+</html>
